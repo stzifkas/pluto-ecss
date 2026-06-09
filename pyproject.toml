@@ -56,7 +56,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-pluto-ecss = ["grammar.lark"]
+pluto_ecss = ["grammar.lark"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
