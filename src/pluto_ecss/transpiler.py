@@ -149,6 +149,17 @@ class _Emitter:
     def _await(self) -> str:
         return "await " if self._is_async else ""
 
+    def _fresh(self, prefix: str) -> str:
+        """Mint a unique local name for generated code so nested constructs
+        never share a temporary. Without this, a `case` nested in a `case`
+        reuses one scrutinee variable and a timeout loop nested in another
+        reuses one `_deadline`, which lets the inner loop overwrite the
+        outer loop's deadline (see the `_stmt_*` emitters below). Draws from
+        the same counter as step/branch names so no two minted names collide.
+        """
+        self._step_counter += 1
+        return f"{prefix}_{self._step_counter}"
+
     # ---- top-level ----
     def emit_procedure(self, proc: Tree) -> str:
         sections = proc.children  # already-flattened (rule is ?section)
@@ -554,7 +565,7 @@ class _Emitter:
 
     def _stmt_case_stmt(self, node: Tree) -> List[str]:
         expr = self._emit_expression(node.children[0])
-        var = "_case_expr"
+        var = self._fresh("_case_expr")
         lines = [f"{var} = {expr}"]
         first = True
         otherwise_node = None
@@ -583,9 +594,10 @@ class _Emitter:
         body = [c for c in node.children[1:] if not (isinstance(c, Tree) and c.data == "timeout_clause")]
         if timeout:
             # convert `while EXPR do BODY with timeout T` into a time-limited while loop
+            deadline = self._fresh("_deadline")
             lines = [
-                f"_deadline = __import__('time').time() + {timeout}",
-                f"while ({expr}) and __import__('time').time() < _deadline:",
+                f"{deadline} = __import__('time').time() + {timeout}",
+                f"while ({expr}) and __import__('time').time() < {deadline}:",
             ]
         else:
             lines = [f"while {expr}:"]
@@ -624,8 +636,9 @@ class _Emitter:
         body = non_timeout[:-1]
         cond = self._emit_expression(non_timeout[-1])
         lines = []
+        deadline = self._fresh("_deadline") if timeout else None
         if timeout:
-            lines.append(f"_deadline = __import__('time').time() + {timeout}")
+            lines.append(f"{deadline} = __import__('time').time() + {timeout}")
         lines.append("while True:")
         if not body:
             lines.append(f"{INDENT}pass")
@@ -635,7 +648,7 @@ class _Emitter:
         lines.append(f"{INDENT}if {cond}:")
         lines.append(f"{INDENT}{INDENT}break")
         if timeout:
-            lines.append(f"{INDENT}if __import__('time').time() >= _deadline:")
+            lines.append(f"{INDENT}if __import__('time').time() >= {deadline}:")
             lines.append(f"{INDENT}{INDENT}break")
         return lines
 
