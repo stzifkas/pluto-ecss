@@ -1,0 +1,56 @@
+name: Bug report
+description: Something parses, transpiles, or runs incorrectly
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For anything security-sensitive, please follow
+        [SECURITY.md](../blob/main/SECURITY.md) instead of opening a public issue.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you observe, and what did you expect instead?
+      placeholder: "Parsing `...` raised X, but I expected it to succeed."
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: The smallest PLUTO source and command that shows the problem.
+      render: text
+      placeholder: |
+        procedure
+          main
+            ...
+          end main
+        end procedure
+
+        $ pluto-ecss run repro.pluto
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Actual output / error
+      description: Paste the full output or traceback.
+      render: shell
+    validations:
+      required: false
+  - type: input
+    id: version
+    attributes:
+      label: pluto-ecss version
+      description: "Output of `pluto-ecss --version`"
+      placeholder: "pluto-ecss 0.3.0"
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.11"
+    validations:
+      required: true

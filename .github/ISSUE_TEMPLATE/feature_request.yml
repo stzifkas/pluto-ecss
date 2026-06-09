@@ -1,0 +1,33 @@
+name: Feature request
+description: A new language construct, runtime capability, or tooling improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the use case. What can't you express or do today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How might it look in PLUTO and/or the transpiled output?
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: spec-clause
+    attributes:
+      label: ECSS clause (if applicable)
+      description: For spec-coverage requests, the relevant ECSS-E-ST-70-32C clause.
+      placeholder: "A.3.9.34"
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
