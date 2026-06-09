@@ -7,7 +7,6 @@ import pathlib
 import subprocess
 import sys
 
-from pluto_ecss.parser import parse
 from pluto_ecss.transpiler import transpile
 
 

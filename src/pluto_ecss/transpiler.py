@@ -451,10 +451,10 @@ class _Emitter:
             return ['raise PlutoTerminated("terminated by continuation test")']
         if kind == "act_ask":
             return [
-                f'_resp = input("[ask user] action? (resume / abort / restart): ").strip().lower()',
-                f'if _resp == "abort": raise PlutoAborted("aborted by user")',
-                f'if _resp == "restart": continue',
-                f"break",
+                '_resp = input("[ask user] action? (resume / abort / restart): ").strip().lower()',
+                'if _resp == "abort": raise PlutoAborted("aborted by user")',
+                'if _resp == "restart": continue',
+                "break",
             ]
         if kind == "act_raise":
             ev = _text_of_name(action.children[0])
@@ -597,7 +597,7 @@ class _Emitter:
         return lines
 
     def _stmt_for_stmt(self, node: Tree) -> List[str]:
-        var_name = _text_of_name(node.children[0]).replace(" ", "_")
+        var_name = _text_of_name(node.children[0])
         # children: name, expr, expr, (expr by)?, statements...
         rest = node.children[1:]
         start_expr = self._emit_expression(rest[0])

@@ -210,11 +210,16 @@ def _format_continuation_test(ct: Tree, depth: int) -> List[str]:
 
 def _format_continuation_action(action: Tree) -> str:
     kind = action.data
-    if kind == "act_resume":    return "resume"
-    if kind == "act_abort":     return "abort"
-    if kind == "act_continue":  return "continue"
-    if kind == "act_terminate": return "terminate"
-    if kind == "act_ask":       return "ask user"
+    if kind == "act_resume":
+        return "resume"
+    if kind == "act_abort":
+        return "abort"
+    if kind == "act_continue":
+        return "continue"
+    if kind == "act_terminate":
+        return "terminate"
+    if kind == "act_ask":
+        return "ask user"
     if kind == "act_raise":
         return f"raise event {_text_of_name(action.children[0])}"
     if kind == "act_restart":

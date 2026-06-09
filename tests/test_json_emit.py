@@ -4,7 +4,6 @@ import pathlib
 import subprocess
 import sys
 
-import pytest
 
 from pluto_ecss.json_emit import transpile_to_dict, transpile_to_json
 
