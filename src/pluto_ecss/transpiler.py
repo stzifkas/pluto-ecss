@@ -129,7 +129,6 @@ def _text_of_description(node: Tree) -> str:
 class _Emitter:
     def __init__(self, *, runtime: str = "threaded", style: str = "functions") -> None:
         self._step_counter = 0
-        self._var_counter = 0
         self._runtime = runtime
         self._is_async = runtime == "async"
         self._style = style
