@@ -217,6 +217,11 @@ def _stmt_to_dict(stmt: Tree) -> Dict[str, Any]:
             "condition": _expression_to_str(stmt.children[0]),
             "timeout": _extract_timeout(stmt),
         }
+    if d == "wait_for_time":
+        return {
+            "kind": "wait_for_duration",
+            "duration": _expression_to_str(stmt.children[0]),
+        }
     if d == "assign_stmt":
         return {
             "kind": "assign",
@@ -322,6 +327,8 @@ def _expression_to_str(node: Any) -> str:
     d = node.data
     if d == "num_lit":
         return str(node.children[0])
+    if d in ("abs_time_lit", "rel_time_lit"):
+        return str(node.children[0])
     if d == "str_lit":
         return str(node.children[0])
     if d == "var_ref":
@@ -368,4 +375,5 @@ def _is_expression(node: Any) -> bool:
     return node.data in {
         "or_expr", "and_expr", "not_op", "comparison",
         "arith", "term", "num_lit", "str_lit", "var_ref", "qname",
+        "abs_time_lit", "rel_time_lit",
     }

@@ -14,11 +14,46 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 log = logging.getLogger("pluto-ecss")
+
+
+# Time constants — kept self-contained (the --no-runtime inliner ships this
+# module verbatim), so they mirror the threaded runtime rather than import it.
+_DURATION_RE = re.compile(
+    r"(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)min)?(?:(\d+(?:\.\d+)?)s)?$"
+)
+
+
+def pluto_time(text: str) -> datetime:
+    """Parse a PLUTO absolute time constant (ISO-8601, optional trailing Z)."""
+    iso = text[:-1] + "+00:00" if text.endswith("Z") else text
+    return datetime.fromisoformat(iso)
+
+
+def pluto_duration(text: str) -> timedelta:
+    """Parse a PLUTO relative time constant (`2h30min`, `10.5s`, ...) to a timedelta."""
+    m = _DURATION_RE.fullmatch(text)
+    if not m or not any(m.groups()):
+        raise PlutoRuntimeError(f"invalid duration: {text!r}")
+    days, hours, minutes, seconds = m.groups()
+    return timedelta(
+        days=int(days or 0),
+        hours=int(hours or 0),
+        minutes=int(minutes or 0),
+        seconds=float(seconds or 0),
+    )
+
+
+async def wait_for_duration(duration: Any) -> None:
+    """Asynchronously block for a relative time (a `timedelta`) or seconds."""
+    secs = duration.total_seconds() if isinstance(duration, timedelta) else float(duration)
+    if secs > 0:
+        await asyncio.sleep(secs)
 
 
 class PlutoRuntimeError(RuntimeError):
@@ -323,30 +358,38 @@ async def parallel_until_one(calls: List[Callable[[], Awaitable[Any]]]) -> None:
             raise exc
 
 
-async def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[float] = None) -> None:
+async def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[float] = None,
+                         timeout_event: Optional[str] = None) -> None:
     evt = proc.events.get(event_name)
     if evt is None:
         raise PlutoRuntimeError(f"event not declared: {event_name!r}")
     if timeout is None:
         await evt._event.wait()
-    else:
-        try:
-            await asyncio.wait_for(evt._event.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            raise PlutoRuntimeError(f"timeout waiting for event {event_name!r}") from None
+        return
+    try:
+        await asyncio.wait_for(evt._event.wait(), timeout=timeout)
+    except asyncio.TimeoutError:
+        if timeout_event is not None:
+            await proc.raise_event(timeout_event)
+            return
+        raise PlutoRuntimeError(f"timeout waiting for event {event_name!r}") from None
 
 
-async def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = None) -> None:
+async def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = None,
+                     timeout_event: Optional[str] = None, proc: "Optional[Procedure]" = None) -> None:
     async def _poll():
         while not predicate():
             await asyncio.sleep(0.01)
     if timeout is None:
         await _poll()
-    else:
-        try:
-            await asyncio.wait_for(_poll(), timeout=timeout)
-        except asyncio.TimeoutError:
-            raise PlutoRuntimeError("timeout in wait until") from None
+        return
+    try:
+        await asyncio.wait_for(_poll(), timeout=timeout)
+    except asyncio.TimeoutError:
+        if timeout_event is not None and proc is not None:
+            await proc.raise_event(timeout_event)
+            return
+        raise PlutoRuntimeError("timeout in wait until") from None
 
 
 def inform_user(*parts: Any) -> None:

@@ -145,6 +145,8 @@ def _format_statement(stmt: Tree, depth: int) -> List[str]:
         expr = _format_expression(stmt.children[0])
         suffix = _timeout_suffix(stmt)
         return [f"{pad}wait until {expr}{suffix}"]
+    if d == "wait_for_time":
+        return [f"{pad}wait for {_format_expression(stmt.children[0])}"]
     if d == "assign_stmt":
         var = _text_of_name(stmt.children[0])
         expr = _format_expression(stmt.children[1])
@@ -376,6 +378,8 @@ def _format_expression(node) -> str:
     d = node.data
     if d == "num_lit":
         return str(node.children[0])
+    if d in ("abs_time_lit", "rel_time_lit"):
+        return str(node.children[0])
     if d == "str_lit":
         return str(node.children[0])
     if d == "var_ref":
@@ -431,7 +435,10 @@ def _is_timeout(c) -> bool:
 def _timeout_clause(node: Tree) -> str | None:
     for c in node.children:
         if _is_timeout(c):
-            return _format_expression(c.children[0])
+            text = _format_expression(c.children[0])
+            if len(c.children) > 1:  # `... raise event E`
+                text += f" raise event {_text_of_name(c.children[1])}"
+            return text
     return None
 
 
@@ -446,4 +453,5 @@ def _is_expression(node) -> bool:
     return node.data in {
         "or_expr", "and_expr", "not_op", "comparison",
         "arith", "term", "num_lit", "str_lit", "var_ref", "qname",
+        "abs_time_lit", "rel_time_lit",
     }

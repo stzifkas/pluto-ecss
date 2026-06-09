@@ -7,13 +7,46 @@ is readable and debuggable on its own.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional
 
 log = logging.getLogger("pluto-ecss")
+
+
+_DURATION_RE = re.compile(
+    r"(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)min)?(?:(\d+(?:\.\d+)?)s)?$"
+)
+
+
+def pluto_time(text: str) -> datetime:
+    """Parse a PLUTO absolute time constant (ISO-8601, optional trailing Z)."""
+    iso = text[:-1] + "+00:00" if text.endswith("Z") else text
+    return datetime.fromisoformat(iso)
+
+
+def pluto_duration(text: str) -> timedelta:
+    """Parse a PLUTO relative time constant (`2h30min`, `10.5s`, ...) to a timedelta."""
+    m = _DURATION_RE.fullmatch(text)
+    if not m or not any(m.groups()):
+        raise PlutoRuntimeError(f"invalid duration: {text!r}")
+    days, hours, minutes, seconds = m.groups()
+    return timedelta(
+        days=int(days or 0),
+        hours=int(hours or 0),
+        minutes=int(minutes or 0),
+        seconds=float(seconds or 0),
+    )
+
+
+def wait_for_duration(duration: Any) -> None:
+    """Block for a relative time (a `timedelta`) or a number of seconds."""
+    secs = duration.total_seconds() if isinstance(duration, timedelta) else float(duration)
+    if secs > 0:
+        time.sleep(secs)
 
 
 class PlutoRuntimeError(RuntimeError):
@@ -362,21 +395,29 @@ def parallel_until_one(calls: List[Callable[[], Any]]) -> None:
     done.wait()
 
 
-def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[float] = None) -> None:
+def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[float] = None,
+                   timeout_event: Optional[str] = None) -> None:
     deadline = None if timeout is None else time.time() + timeout
     while True:
         evt = proc.events.get(event_name)
         if evt and evt.raised:
             return
         if deadline is not None and time.time() >= deadline:
+            if timeout_event is not None:
+                proc.raise_event(timeout_event)
+                return
             raise PlutoRuntimeError(f"timeout waiting for event {event_name!r}")
         time.sleep(0.01)
 
 
-def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = None) -> None:
+def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = None,
+               timeout_event: Optional[str] = None, proc: "Optional[Procedure]" = None) -> None:
     deadline = None if timeout is None else time.time() + timeout
     while not predicate():
         if deadline is not None and time.time() >= deadline:
+            if timeout_event is not None and proc is not None:
+                proc.raise_event(timeout_event)
+                return
             raise PlutoRuntimeError("timeout in wait until")
         time.sleep(0.01)
 

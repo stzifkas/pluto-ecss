@@ -11,6 +11,12 @@
 
 WORD.-10: /[A-Za-z_][A-Za-z0-9_]*/
 
+// Time constants (spec A.4.2). Higher priority than NUMBER/WORD so a literal
+// like `2h30min` or an ISO timestamp tokenises as one unit. A relative time
+// always carries a d/h/min/s suffix, so a bare number stays a NUMBER.
+ABS_TIME.20: /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z?/
+REL_TIME.15: /\d+d(\d+h)?(\d+min)?(\d+(\.\d+)?s)?|\d+h(\d+min)?(\d+(\.\d+)?s)?|\d+min(\d+(\.\d+)?s)?|\d+(\.\d+)?s/
+
 start: procedure_body
 
 procedure_body: "procedure" section+ "end" "procedure"
@@ -109,11 +115,14 @@ while_stmt: "while" expression "do" statement+ timeout_clause? "end" "while"
 for_stmt: "for" name ":=" expression "to" expression ("by" expression)? "do" statement+ "end" "for"
 repeat_stmt: "repeat" statement+ "until" expression timeout_clause? "end" "repeat"
 
-?wait_stmt: wait_for_event | wait_until_expr
+?wait_stmt: wait_for_event | wait_until_expr | wait_for_time
 wait_for_event: "wait" "for" "event" name timeout_clause?
 wait_until_expr: "wait" "until" expression timeout_clause?
+// `wait for <duration>` — blocks for a relative time (spec A.3.9.4).
+wait_for_time: "wait" "for" expression
 
-timeout_clause: "with" "timeout" expression
+// A timeout may raise an event on expiry (spec A.3.9.6 `Timeout`).
+timeout_clause: "with" "timeout" expression ("raise" "event" name)?
 
 assign_stmt: name ":=" expression
 log_stmt: "log" expression
@@ -162,6 +171,8 @@ ADD_OP: "+" | "-"
 ?term: factor (MUL_OP factor)*
 MUL_OP: "*" | "/"
 ?factor: NUMBER              -> num_lit
+       | ABS_TIME            -> abs_time_lit
+       | REL_TIME            -> rel_time_lit
        | ESCAPED_STRING      -> str_lit
        | property_request    -> prop_req
        | qname               -> var_ref
