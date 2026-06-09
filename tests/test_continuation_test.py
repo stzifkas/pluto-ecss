@@ -166,7 +166,6 @@ def test_abort_action_propagates():
     (the activity confirmed) — but if the activity raises, abort fires."""
     from pluto_ecss.runtime import (
         Activity, PlutoAborted, register_activity,
-        Procedure, switch_on, initiate_and_confirm,
     )
 
     def failing_handler(_act):

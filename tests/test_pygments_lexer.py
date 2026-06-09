@@ -3,18 +3,22 @@ import pytest
 
 pygments = pytest.importorskip("pygments")
 
-from pygments import highlight
-from pygments.formatters import RawTokenFormatter
-from pygments.token import Keyword, Name
+from pygments import highlight  # noqa: E402
+from pygments.formatters import RawTokenFormatter  # noqa: E402
+from pygments.token import Keyword, Name  # noqa: E402
 
-from pluto_ecss.pygments_lexer import PlutoLexer
+from pluto_ecss.pygments_lexer import PlutoLexer  # noqa: E402
 
 
 def test_keywords_are_tokenised_as_keywords():
     src = "procedure\n  main\n    initiate Switch on Star Tracker1\n  end main\nend procedure"
     tokens = list(PlutoLexer().get_tokens(src))
     types_and_text = [(t, v) for t, v in tokens]
-    keyword_words = {v.strip() for t, v in types_and_text if t in Keyword or t in Keyword.Reserved or t in Keyword.Pseudo}
+    keyword_words = {
+        v.strip()
+        for t, v in types_and_text
+        if t in Keyword or t in Keyword.Reserved or t in Keyword.Pseudo
+    }
     assert "procedure" in keyword_words
     assert "main" in keyword_words
     assert "initiate" in keyword_words

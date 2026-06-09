@@ -112,9 +112,6 @@ def _describe_token(tok) -> str:
     if tok is None:
         return "input"
     raw = getattr(tok, "value", str(tok))
-    typ = getattr(tok, "type", None)
-    if typ and not typ.startswith(_ANON_PREFIX):
-        return f"{raw!r}"
     return f"{raw!r}"
 
 

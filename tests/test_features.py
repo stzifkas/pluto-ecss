@@ -4,7 +4,6 @@ import subprocess
 import sys
 import pathlib
 
-import pytest
 
 from pluto_ecss.transpiler import transpile
 
@@ -146,16 +145,6 @@ def test_while_with_timeout_emits_deadline():
     """
     out = transpile(src)
     assert "_deadline" not in out  # no timeout, no deadline
-    src2 = """
-    procedure
-      main
-        c := 0
-        while c < 100 do
-          c := c + 1
-        end while
-      end main
-    end procedure
-    """
     # add a timeout variant
     src3 = """
     procedure

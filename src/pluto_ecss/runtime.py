@@ -69,7 +69,7 @@ class ReportingData:
     sampling_time: "Optional[datetime]" = None
 
     def get_property(self, prop: str) -> Any:
-        if prop in ("value",):
+        if prop == "value":
             return self.value
         if prop == "engineering_value":
             return self.engineering_value if self.engineering_value is not None else self.value

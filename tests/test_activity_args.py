@@ -3,7 +3,6 @@ import pathlib
 import subprocess
 import sys
 
-import pytest
 
 from pluto_ecss.parser import parse
 from pluto_ecss.transpiler import transpile

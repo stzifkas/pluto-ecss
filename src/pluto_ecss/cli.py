@@ -48,8 +48,12 @@ def main(argv: list[str] | None = None) -> int:
                        help="emit a free main() function or a Procedure subclass (default: functions)")
 
     p_demo = sub.add_parser("demo", help="live TUI dashboard (requires rich)")
-    p_demo.add_argument("script", type=pathlib.Path, nargs="?", help="optional .pluto script; defaults to examples/05_full_bringup.pluto")
-
+    p_demo.add_argument(
+        "script",
+        type=pathlib.Path,
+        nargs="?",
+        help="optional .pluto script; defaults to examples/05_full_bringup.pluto",
+    )
     p_fmt = sub.add_parser("fmt", help="canonicalise PLUTO source (pretty-print)")
     p_fmt.add_argument("script", type=pathlib.Path)
     p_fmt.add_argument("-i", "--in-place", action="store_true", help="rewrite the file in place")

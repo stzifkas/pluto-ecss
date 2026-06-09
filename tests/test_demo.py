@@ -5,7 +5,7 @@ import pytest
 
 rich = pytest.importorskip("rich")
 
-from pluto_ecss.demo import DashboardState, _render
+from pluto_ecss.demo import DashboardState, _render  # noqa: E402
 
 
 def test_dashboard_state_mutations():
