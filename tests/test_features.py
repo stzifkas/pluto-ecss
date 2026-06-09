@@ -73,7 +73,7 @@ def test_case_emits_if_elif_chain():
     end procedure
     """
     out = transpile(src)
-    assert "_case_expr =" in out
+    assert "_case_expr" in out  # scrutinee var (now uniquely suffixed per case)
     assert out.count("elif ") >= 1
     assert "else:" in out
 
