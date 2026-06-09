@@ -155,7 +155,14 @@ property_name: WORD ("_" WORD)*
 ?or_expr: and_expr ("or" and_expr)*
 ?and_expr: not_expr ("and" not_expr)*
 ?not_expr: "not" not_expr -> not_op | comparison
-?comparison: arith (CMP_OP arith)?
+// Comparative expressions (spec A.3.9.34): plain relational comparison plus
+// the telemetry-check forms `between`, `within ... of`, and `in (...)`.
+?comparison: arith
+           | arith CMP_OP arith                      -> comparison
+           | arith "between" arith "and" arith       -> between_expr
+           | arith "within" arith "of" arith         -> within_expr
+           | arith "within" arith "%" "of" arith     -> within_pct_expr
+           | arith "in" "(" arith ("," arith)* ")"   -> in_expr
 CMP_OP: ">=" | "<=" | "<>" | ">" | "<" | "="
 ?arith: term (ADD_OP term)*
 ADD_OP: "+" | "-"

@@ -399,6 +399,19 @@ def _format_expression(node) -> str:
         op = str(node.children[1])
         right = _format_expression(node.children[2])
         return f"{left} {op} {right}"
+    if d == "between_expr":
+        x, lo, hi = (_format_expression(c) for c in node.children)
+        return f"{x} between {lo} and {hi}"
+    if d == "within_expr":
+        x, tol, y = (_format_expression(c) for c in node.children)
+        return f"{x} within {tol} of {y}"
+    if d == "within_pct_expr":
+        x, tol, y = (_format_expression(c) for c in node.children)
+        return f"{x} within {tol} % of {y}"
+    if d == "in_expr":
+        x = _format_expression(node.children[0])
+        elems = ", ".join(_format_expression(c) for c in node.children[1:])
+        return f"{x} in ({elems})"
     if d in ("arith", "term"):
         out = _format_expression(node.children[0])
         i = 1
@@ -445,5 +458,6 @@ def _is_expression(node) -> bool:
         return False
     return node.data in {
         "or_expr", "and_expr", "not_op", "comparison",
+        "between_expr", "within_expr", "within_pct_expr", "in_expr",
         "arith", "term", "num_lit", "str_lit", "var_ref", "qname",
     }

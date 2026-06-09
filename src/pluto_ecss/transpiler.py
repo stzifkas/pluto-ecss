@@ -764,6 +764,29 @@ class _Emitter:
             op = _map_cmp_op(str(node.children[1]))
             right = self._emit_expression(node.children[2])
             return f"({left} {op} {right})"
+        if d == "between_expr":
+            # `X between LO and HI` -> LO <= X <= HI (inclusive, spec A.3.9.34)
+            x = self._emit_expression(node.children[0])
+            lo = self._emit_expression(node.children[1])
+            hi = self._emit_expression(node.children[2])
+            return f"({lo} <= {x} <= {hi})"
+        if d == "within_expr":
+            # `X within TOL of Y` -> abs(X - Y) <= TOL
+            x = self._emit_expression(node.children[0])
+            tol = self._emit_expression(node.children[1])
+            y = self._emit_expression(node.children[2])
+            return f"(abs({x} - {y}) <= {tol})"
+        if d == "within_pct_expr":
+            # `X within TOL % of Y` -> abs(X - Y) <= abs(Y) * TOL / 100
+            x = self._emit_expression(node.children[0])
+            tol = self._emit_expression(node.children[1])
+            y = self._emit_expression(node.children[2])
+            return f"(abs({x} - {y}) <= abs({y}) * ({tol}) / 100)"
+        if d == "in_expr":
+            # `X in (A, B, ...)` -> X in (A, B, ..., )  (trailing comma forces a tuple)
+            x = self._emit_expression(node.children[0])
+            elems = ", ".join(self._emit_expression(c) for c in node.children[1:])
+            return f"({x} in ({elems},))"
         if d == "arith":
             return _emit_binop_chain(node.children, self._emit_expression)
         if d == "term":
@@ -839,6 +862,7 @@ def _is_expression(node) -> bool:
         return False
     return node.data in {
         "or_expr", "and_expr", "not_op", "comparison",
+        "between_expr", "within_expr", "within_pct_expr", "in_expr",
         "arith", "term", "num_lit", "str_lit", "var_ref", "qname", "prop_req",
     }
 
