@@ -8,6 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import sys
 import tempfile
@@ -147,7 +148,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.keep:
             print(f"[transpiled to {tmp_path}]", file=sys.stderr)
         ns: dict = {"__name__": "__main__", "__file__": tmp_path}
-        exec(compile(py, tmp_path, "exec"), ns)
+        try:
+            exec(compile(py, tmp_path, "exec"), ns)
+        finally:
+            if not args.keep:
+                os.unlink(tmp_path)
         return 0
 
     return 2
