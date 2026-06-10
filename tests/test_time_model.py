@@ -126,3 +126,45 @@ def test_round_trips_through_formatter_and_json():
     d = transpile_to_dict(src)
     kinds = [s["kind"] for s in d["main"]]
     assert "wait_for_duration" in kinds
+
+
+# ---- regression: review findings on the original PR ----
+def test_duration_literal_as_timeout_does_not_crash():
+    """`with timeout 0.2s` used to emit `time.time() + pluto_duration(...)`,
+    a float + timedelta TypeError. pluto_seconds() coerces it."""
+    out = _run("""
+    procedure
+      main
+        i := 0
+        repeat
+          i := i + 1
+        until 1 = 0 with timeout 0.05s
+        end repeat
+        inform user "survived"
+      end main
+    end procedure
+    """)
+    assert "survived" in out
+
+
+def test_json_emit_includes_timeout_event():
+    """The raise-event name must survive JSON serialisation (review finding:
+    it was silently dropped from while/repeat/wait records)."""
+    d = transpile_to_dict("""
+    procedure
+      main
+        while 1 = 1 do x := 1 with timeout 5 raise event boom end while;
+        wait for event go with timeout 3 raise event late
+      end main
+    end procedure
+    """)
+    w, wfe = d["main"][0], d["main"][1]
+    assert w["timeout_event"] == "boom"
+    assert wfe["timeout_event"] == "late"
+
+
+def test_pluto_seconds_coercion():
+    from pluto_ecss.runtime import pluto_seconds
+    assert pluto_seconds(timedelta(minutes=2)) == 120.0
+    assert pluto_seconds(5) == 5.0
+    assert pluto_seconds(0.5) == 0.5

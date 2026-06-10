@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Roadmap
+    url: https://github.com/stzifkas/pluto-ecss/issues/36
+    about: See the planned milestones before filing — your idea may already be tracked.
+  - name: Documentation
+    url: https://stzifkas.github.io/pluto-ecss/
+    about: Quickstart, grammar reference, and the web playground.
+  - name: Security report
+    url: https://github.com/stzifkas/pluto-ecss/security/advisories/new
+    about: Report a vulnerability privately (do not open a public issue).

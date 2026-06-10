@@ -16,7 +16,7 @@ import inspect
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 log = logging.getLogger("pluto-ecss")
@@ -29,10 +29,32 @@ _DURATION_RE = re.compile(
 )
 
 
+_ABS_TIME_RE = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z?)$"
+)
+
+
 def pluto_time(text: str) -> datetime:
-    """Parse a PLUTO absolute time constant (ISO-8601, optional trailing Z)."""
-    iso = text[:-1] + "+00:00" if text.endswith("Z") else text
-    return datetime.fromisoformat(iso)
+    """Parse a PLUTO absolute time constant (ISO-8601, optional trailing Z).
+
+    Manual parse: fromisoformat on Python <= 3.10 rejects 'Z' and short
+    fraction digits, both allowed by the grammar.
+    """
+    m = _ABS_TIME_RE.fullmatch(text)
+    if not m:
+        raise PlutoRuntimeError(f"invalid absolute time: {text!r}")
+    year, month, day, hour, minute, second, frac, zulu = m.groups()
+    micro = int(float(f"0.{frac}") * 1_000_000) if frac else 0
+    tz = timezone.utc if zulu else None
+    return datetime(int(year), int(month), int(day),
+                    int(hour), int(minute), int(second), micro, tzinfo=tz)
+
+
+def pluto_seconds(value: Any) -> float:
+    """Coerce a timeout value — a `timedelta` or a number — to float seconds."""
+    if isinstance(value, timedelta):
+        return value.total_seconds()
+    return float(value)
 
 
 def pluto_duration(text: str) -> timedelta:
@@ -51,7 +73,7 @@ def pluto_duration(text: str) -> timedelta:
 
 async def wait_for_duration(duration: Any) -> None:
     """Asynchronously block for a relative time (a `timedelta`) or seconds."""
-    secs = duration.total_seconds() if isinstance(duration, timedelta) else float(duration)
+    secs = pluto_seconds(duration)
     if secs > 0:
         await asyncio.sleep(secs)
 
@@ -367,7 +389,7 @@ async def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[f
         await evt._event.wait()
         return
     try:
-        await asyncio.wait_for(evt._event.wait(), timeout=timeout)
+        await asyncio.wait_for(evt._event.wait(), timeout=pluto_seconds(timeout))
     except asyncio.TimeoutError:
         if timeout_event is not None:
             await proc.raise_event(timeout_event)
@@ -384,7 +406,7 @@ async def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = N
         await _poll()
         return
     try:
-        await asyncio.wait_for(_poll(), timeout=timeout)
+        await asyncio.wait_for(_poll(), timeout=pluto_seconds(timeout))
     except asyncio.TimeoutError:
         if timeout_event is not None and proc is not None:
             await proc.raise_event(timeout_event)

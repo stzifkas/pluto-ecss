@@ -10,6 +10,17 @@ from typing import List
 
 from lark import Token, Tree
 
+from pluto_ecss._nodes import (
+    CS_LABEL,
+    continuation_test_node as _continuation_test_node,
+    description_text as _text_of_description,
+    is_expression as _is_expression,
+    is_timeout as _is_timeout,
+    name_text as _text_of_name,
+    qname_text as _text_of_qname,
+    restart_limit as _restart_limit,
+    timeout_clause as _timeout_clause_node,
+)
 from pluto_ecss.parser import parse as parse_pluto
 
 _RUNTIME_DIR = pathlib.Path(__file__).parent
@@ -70,7 +81,7 @@ _RUNTIME_PUBLIC_NAMES = (
     "initiate", "initiate_and_confirm", "initiate_and_confirm_step",
     "parallel_until_all", "parallel_until_one",
     "wait_for_event", "wait_until", "wait_for_duration",
-    "pluto_time", "pluto_duration",
+    "pluto_time", "pluto_duration", "pluto_seconds",
     "inform_user", "pluto_log",
 )
 
@@ -111,20 +122,6 @@ def _module_footer(*, runtime: str, style: str = "functions") -> str:
 def _join(lines: List[str], depth: int) -> str:
     pad = INDENT * depth
     return "\n".join(pad + ln if ln else ln for ln in lines)
-
-
-def _text_of_name(node: Tree) -> str:
-    """name node -> single string (words joined with spaces)."""
-    return " ".join(str(t) for t in node.children)
-
-
-def _text_of_qname(node: Tree) -> str:
-    """qname node -> 'X of Y of Z' string."""
-    return " of ".join(_text_of_name(n) for n in node.children)
-
-
-def _text_of_description(node: Tree) -> str:
-    return " ".join(str(t) for t in node.children)
 
 
 class _Emitter:
@@ -401,12 +398,7 @@ class _Emitter:
         arms: dict[str, Tree] = {}
         for arm in ct.children:
             label_node, action_node = arm.children[0], arm.children[1]
-            label_key = {
-                "cs_confirmed": "confirmed",
-                "cs_not_confirmed": "not confirmed",
-                "cs_aborted": "aborted",
-            }[label_node.data]
-            arms[label_key] = action_node
+            arms[CS_LABEL[label_node.data]] = action_node
 
         # If any arm uses `restart with timeout`, we need a deadline.
         needs_deadline = any(
@@ -593,13 +585,14 @@ class _Emitter:
         expr = self._emit_expression(node.children[0])
         timeout = self._extract_timeout(node)
         timeout_event = self._extract_timeout_event(node)
-        body = [c for c in node.children[1:] if not (isinstance(c, Tree) and c.data == "timeout_clause")]
+        body = [c for c in node.children[1:] if not _is_timeout(c)]
         deadline = None
         if timeout:
-            # convert `while EXPR do BODY with timeout T` into a time-limited while loop
+            # convert `while EXPR do BODY with timeout T` into a time-limited
+            # while loop; pluto_seconds() lets T be a duration literal too
             deadline = self._fresh("_deadline")
             lines = [
-                f"{deadline} = __import__('time').time() + {timeout}",
+                f"{deadline} = __import__('time').time() + pluto_seconds({timeout})",
                 f"while ({expr}) and __import__('time').time() < {deadline}:",
             ]
         else:
@@ -639,13 +632,13 @@ class _Emitter:
     def _stmt_repeat_stmt(self, node: Tree) -> List[str]:
         timeout = self._extract_timeout(node)
         timeout_event = self._extract_timeout_event(node)
-        non_timeout = [c for c in node.children if not (isinstance(c, Tree) and c.data == "timeout_clause")]
+        non_timeout = [c for c in node.children if not _is_timeout(c)]
         body = non_timeout[:-1]
         cond = self._emit_expression(non_timeout[-1])
         lines = []
         deadline = self._fresh("_deadline") if timeout else None
         if timeout:
-            lines.append(f"{deadline} = __import__('time').time() + {timeout}")
+            lines.append(f"{deadline} = __import__('time').time() + pluto_seconds({timeout})")
         lines.append("while True:")
         if not body:
             lines.append(f"{INDENT}pass")
@@ -665,7 +658,7 @@ class _Emitter:
         ev = _text_of_name(node.children[0])
         timeout = self._extract_timeout(node)
         timeout_event = self._extract_timeout_event(node)
-        timeout_arg = f", timeout={timeout}" if timeout else ""
+        timeout_arg = f", timeout=pluto_seconds({timeout})" if timeout else ""
         event_arg = f', timeout_event="{timeout_event}"' if timeout_event else ""
         return [f'{self._await}wait_for_event({self._receiver}, "{ev}"{timeout_arg}{event_arg})']
 
@@ -673,7 +666,7 @@ class _Emitter:
         expr = self._emit_expression(node.children[0])
         timeout = self._extract_timeout(node)
         timeout_event = self._extract_timeout_event(node)
-        timeout_arg = f", timeout={timeout}" if timeout else ""
+        timeout_arg = f", timeout=pluto_seconds({timeout})" if timeout else ""
         event_arg = (
             f', timeout_event="{timeout_event}", proc={self._receiver}' if timeout_event else ""
         )
@@ -684,17 +677,14 @@ class _Emitter:
         return [f"{self._await}wait_for_duration({expr})"]
 
     def _extract_timeout(self, node: Tree) -> str | None:
-        for child in node.children:
-            if isinstance(child, Tree) and child.data == "timeout_clause":
-                return self._emit_expression(child.children[0])
-        return None
+        tc = _timeout_clause_node(node)
+        return self._emit_expression(tc.children[0]) if tc is not None else None
 
     def _extract_timeout_event(self, node: Tree) -> str | None:
         """The event name in `with timeout T raise event E`, if any."""
-        for child in node.children:
-            if isinstance(child, Tree) and child.data == "timeout_clause":
-                if len(child.children) > 1:
-                    return _text_of_name(child.children[1])
+        tc = _timeout_clause_node(node)
+        if tc is not None and len(tc.children) > 1:
+            return _text_of_name(tc.children[1])
         return None
 
     def _stmt_assign_stmt(self, node: Tree) -> List[str]:
@@ -795,6 +785,29 @@ class _Emitter:
             op = _map_cmp_op(str(node.children[1]))
             right = self._emit_expression(node.children[2])
             return f"({left} {op} {right})"
+        if d == "between_expr":
+            # `X between LO and HI` -> LO <= X <= HI (inclusive, spec A.3.9.34)
+            x = self._emit_expression(node.children[0])
+            lo = self._emit_expression(node.children[1])
+            hi = self._emit_expression(node.children[2])
+            return f"({lo} <= {x} <= {hi})"
+        if d == "within_expr":
+            # `X within TOL of Y` -> abs(X - Y) <= TOL
+            x = self._emit_expression(node.children[0])
+            tol = self._emit_expression(node.children[1])
+            y = self._emit_expression(node.children[2])
+            return f"(abs({x} - {y}) <= {tol})"
+        if d == "within_pct_expr":
+            # `X within TOL % of Y` -> abs(X - Y) <= abs(Y) * TOL / 100
+            x = self._emit_expression(node.children[0])
+            tol = self._emit_expression(node.children[1])
+            y = self._emit_expression(node.children[2])
+            return f"(abs({x} - {y}) <= abs({y}) * ({tol}) / 100)"
+        if d == "in_expr":
+            # `X in (A, B, ...)` -> X in (A, B, ..., )  (trailing comma forces a tuple)
+            x = self._emit_expression(node.children[0])
+            elems = ", ".join(self._emit_expression(c) for c in node.children[1:])
+            return f"({x} in ({elems},))"
         if d == "arith":
             return _emit_binop_chain(node.children, self._emit_expression)
         if d == "term":
@@ -820,26 +833,6 @@ class _Emitter:
         return f'{self._receiver}.get_property("{activity_name}", "{prop_name}")'
 
 
-def _is_continuation_test(c) -> bool:
-    return isinstance(c, Tree) and c.data == "continuation_test"
-
-
-def _continuation_test_node(node: Tree) -> Tree | None:
-    for c in node.children:
-        if _is_continuation_test(c):
-            return c
-    return None
-
-
-def _restart_limit(action: Tree) -> Tree | None:
-    if action.data != "act_restart":
-        return None
-    for c in action.children:
-        if isinstance(c, Tree) and c.data in ("restart_max", "restart_timeout"):
-            return c
-    return None
-
-
 def _emit_binop_chain(children, emit) -> str:
     out = emit(children[0])
     i = 1
@@ -863,16 +856,6 @@ def _emit_token(tok: Token) -> str:
 
 def _map_cmp_op(op: str) -> str:
     return {"=": "==", "<>": "!="}.get(op, op)
-
-
-def _is_expression(node) -> bool:
-    if isinstance(node, Token):
-        return False
-    return node.data in {
-        "or_expr", "and_expr", "not_op", "comparison",
-        "arith", "term", "num_lit", "str_lit", "var_ref", "qname", "prop_req",
-        "abs_time_lit", "rel_time_lit",
-    }
 
 
 def _ref_to_python(qn: str, receiver: str) -> str:

@@ -129,7 +129,7 @@ def test_wait_for_event_with_timeout_emits_timeout_arg():
     end procedure
     """
     out = transpile(src)
-    assert "timeout=5" in out
+    assert "timeout=pluto_seconds(5)" in out  # coerced so duration literals work too
 
 
 def test_while_with_timeout_emits_deadline():
