@@ -41,8 +41,18 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List
 
-from lark import Token, Tree
+from lark import Tree
 
+from pluto_ecss._nodes import (
+    CS_LABEL as _CS_LABEL_J,
+    description_text as _description_text,
+    is_expression as _is_expression,
+    is_timeout as _is_timeout,
+    name_text as _name_text,
+    qname_text as _qname_text,
+    render_expression as _expression_to_str,
+    timeout_clause as _timeout_clause_node,
+)
 from pluto_ecss.parser import parse as parse_pluto
 
 
@@ -241,13 +251,6 @@ def _stmt_to_dict(stmt: Tree) -> Dict[str, Any]:
     return {"kind": "unknown", "rule": d}
 
 
-_CS_LABEL_J = {
-    "cs_confirmed": "confirmed",
-    "cs_not_confirmed": "not confirmed",
-    "cs_aborted": "aborted",
-}
-
-
 def _continuation_test_dict(stmt: Tree) -> List[Dict[str, Any]] | None:
     for c in stmt.children:
         if isinstance(c, Tree) and c.data == "continuation_test":
@@ -300,86 +303,6 @@ def _activity_call_to_dict(node: Tree) -> Dict[str, Any]:
     return out
 
 
-# ----- text / expression helpers (deliberately duplicated from transpiler.py
-#       so a json-only build doesn't have to import the Python emitter) -----
-
-
-def _name_text(node: Tree) -> str:
-    return " ".join(str(t) for t in node.children)
-
-
-def _qname_text(node: Tree) -> str:
-    return " of ".join(_name_text(n) for n in node.children)
-
-
-def _description_text(node: Tree) -> str:
-    return " ".join(str(t) for t in node.children)
-
-
-def _expression_to_str(node: Any) -> str:
-    if isinstance(node, Token):
-        return str(node)
-    d = node.data
-    if d == "num_lit":
-        return str(node.children[0])
-    if d == "str_lit":
-        return str(node.children[0])
-    if d == "var_ref":
-        return _qname_text(node.children[0])
-    if d == "qname":
-        return _qname_text(node)
-    if d == "not_op":
-        return f"not {_expression_to_str(node.children[0])}"
-    if d == "or_expr":
-        return " or ".join(_expression_to_str(c) for c in node.children)
-    if d == "and_expr":
-        return " and ".join(_expression_to_str(c) for c in node.children)
-    if d == "comparison":
-        left = _expression_to_str(node.children[0])
-        op = str(node.children[1])
-        right = _expression_to_str(node.children[2])
-        return f"{left} {op} {right}"
-    if d == "between_expr":
-        x, lo, hi = (_expression_to_str(c) for c in node.children)
-        return f"{x} between {lo} and {hi}"
-    if d == "within_expr":
-        x, tol, y = (_expression_to_str(c) for c in node.children)
-        return f"{x} within {tol} of {y}"
-    if d == "within_pct_expr":
-        x, tol, y = (_expression_to_str(c) for c in node.children)
-        return f"{x} within {tol} % of {y}"
-    if d == "in_expr":
-        x = _expression_to_str(node.children[0])
-        elems = ", ".join(_expression_to_str(c) for c in node.children[1:])
-        return f"{x} in ({elems})"
-    if d in ("arith", "term"):
-        out = _expression_to_str(node.children[0])
-        i = 1
-        while i < len(node.children):
-            op = str(node.children[i])
-            right = _expression_to_str(node.children[i + 1])
-            out = f"{out} {op} {right}"
-            i += 2
-        return out
-    return f"<{d}>"
-
-
-def _is_timeout(c: Any) -> bool:
-    return isinstance(c, Tree) and c.data == "timeout_clause"
-
-
 def _extract_timeout(node: Tree) -> str | None:
-    for c in node.children:
-        if _is_timeout(c):
-            return _expression_to_str(c.children[0])
-    return None
-
-
-def _is_expression(node: Any) -> bool:
-    if isinstance(node, Token):
-        return False
-    return node.data in {
-        "or_expr", "and_expr", "not_op", "comparison",
-        "between_expr", "within_expr", "within_pct_expr", "in_expr",
-        "arith", "term", "num_lit", "str_lit", "var_ref", "qname",
-    }
+    tc = _timeout_clause_node(node)
+    return _expression_to_str(tc.children[0]) if tc is not None else None
