@@ -10,6 +10,17 @@ from typing import List
 
 from lark import Token, Tree
 
+from pluto_ecss._nodes import (
+    CS_LABEL,
+    continuation_test_node as _continuation_test_node,
+    description_text as _text_of_description,
+    is_expression as _is_expression,
+    is_timeout as _is_timeout,
+    name_text as _text_of_name,
+    qname_text as _text_of_qname,
+    restart_limit as _restart_limit,
+    timeout_clause as _timeout_clause_node,
+)
 from pluto_ecss.parser import parse as parse_pluto
 
 _RUNTIME_DIR = pathlib.Path(__file__).parent
@@ -110,20 +121,6 @@ def _module_footer(*, runtime: str, style: str = "functions") -> str:
 def _join(lines: List[str], depth: int) -> str:
     pad = INDENT * depth
     return "\n".join(pad + ln if ln else ln for ln in lines)
-
-
-def _text_of_name(node: Tree) -> str:
-    """name node -> single string (words joined with spaces)."""
-    return " ".join(str(t) for t in node.children)
-
-
-def _text_of_qname(node: Tree) -> str:
-    """qname node -> 'X of Y of Z' string."""
-    return " of ".join(_text_of_name(n) for n in node.children)
-
-
-def _text_of_description(node: Tree) -> str:
-    return " ".join(str(t) for t in node.children)
 
 
 class _Emitter:
@@ -400,12 +397,7 @@ class _Emitter:
         arms: dict[str, Tree] = {}
         for arm in ct.children:
             label_node, action_node = arm.children[0], arm.children[1]
-            label_key = {
-                "cs_confirmed": "confirmed",
-                "cs_not_confirmed": "not confirmed",
-                "cs_aborted": "aborted",
-            }[label_node.data]
-            arms[label_key] = action_node
+            arms[CS_LABEL[label_node.data]] = action_node
 
         # If any arm uses `restart with timeout`, we need a deadline.
         needs_deadline = any(
@@ -591,7 +583,7 @@ class _Emitter:
     def _stmt_while_stmt(self, node: Tree) -> List[str]:
         expr = self._emit_expression(node.children[0])
         timeout = self._extract_timeout(node)
-        body = [c for c in node.children[1:] if not (isinstance(c, Tree) and c.data == "timeout_clause")]
+        body = [c for c in node.children[1:] if not _is_timeout(c)]
         if timeout:
             # convert `while EXPR do BODY with timeout T` into a time-limited while loop
             deadline = self._fresh("_deadline")
@@ -632,7 +624,7 @@ class _Emitter:
 
     def _stmt_repeat_stmt(self, node: Tree) -> List[str]:
         timeout = self._extract_timeout(node)
-        non_timeout = [c for c in node.children if not (isinstance(c, Tree) and c.data == "timeout_clause")]
+        non_timeout = [c for c in node.children if not _is_timeout(c)]
         body = non_timeout[:-1]
         cond = self._emit_expression(non_timeout[-1])
         lines = []
@@ -665,10 +657,8 @@ class _Emitter:
         return [f"{self._await}wait_until(lambda: {expr}{timeout_arg})"]
 
     def _extract_timeout(self, node: Tree) -> str | None:
-        for child in node.children:
-            if isinstance(child, Tree) and child.data == "timeout_clause":
-                return self._emit_expression(child.children[0])
-        return None
+        tc = _timeout_clause_node(node)
+        return self._emit_expression(tc.children[0]) if tc is not None else None
 
     def _stmt_assign_stmt(self, node: Tree) -> List[str]:
         var = _py_ident(_text_of_name(node.children[0]))
@@ -789,26 +779,6 @@ class _Emitter:
         return f'{self._receiver}.get_property("{activity_name}", "{prop_name}")'
 
 
-def _is_continuation_test(c) -> bool:
-    return isinstance(c, Tree) and c.data == "continuation_test"
-
-
-def _continuation_test_node(node: Tree) -> Tree | None:
-    for c in node.children:
-        if _is_continuation_test(c):
-            return c
-    return None
-
-
-def _restart_limit(action: Tree) -> Tree | None:
-    if action.data != "act_restart":
-        return None
-    for c in action.children:
-        if isinstance(c, Tree) and c.data in ("restart_max", "restart_timeout"):
-            return c
-    return None
-
-
 def _emit_binop_chain(children, emit) -> str:
     out = emit(children[0])
     i = 1
@@ -832,15 +802,6 @@ def _emit_token(tok: Token) -> str:
 
 def _map_cmp_op(op: str) -> str:
     return {"=": "==", "<>": "!="}.get(op, op)
-
-
-def _is_expression(node) -> bool:
-    if isinstance(node, Token):
-        return False
-    return node.data in {
-        "or_expr", "and_expr", "not_op", "comparison",
-        "arith", "term", "num_lit", "str_lit", "var_ref", "qname", "prop_req",
-    }
 
 
 def _ref_to_python(qn: str, receiver: str) -> str:

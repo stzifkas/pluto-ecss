@@ -12,8 +12,19 @@ from __future__ import annotations
 
 from typing import List
 
-from lark import Token, Tree
+from lark import Tree
 
+from pluto_ecss._nodes import (
+    CS_LABEL as _CS_LABEL,
+    continuation_test_node as _continuation_test,
+    description_text as _text_of_description,
+    is_expression as _is_expression,
+    is_timeout as _is_timeout,
+    name_text as _text_of_name,
+    qname_text as _text_of_qname,
+    render_expression as _format_expression,
+    timeout_clause as _timeout_clause_node,
+)
 from pluto_ecss.parser import parse as parse_pluto
 
 
@@ -180,20 +191,6 @@ def _format_step(stmt: Tree, depth: int) -> List[str]:
     if ct is not None:
         lines.extend(_format_continuation_test(ct, depth + 1))
     return lines
-
-
-def _continuation_test(stmt: Tree) -> Tree | None:
-    for c in stmt.children:
-        if isinstance(c, Tree) and c.data == "continuation_test":
-            return c
-    return None
-
-
-_CS_LABEL = {
-    "cs_confirmed": "confirmed",
-    "cs_not_confirmed": "not confirmed",
-    "cs_aborted": "aborted",
-}
 
 
 def _format_continuation_test(ct: Tree, depth: int) -> List[str]:
@@ -369,81 +366,12 @@ def _format_activity_with(tail) -> str:
     return ""
 
 
-# ---------- expressions ----------
-def _format_expression(node) -> str:
-    if isinstance(node, Token):
-        return str(node)
-    d = node.data
-    if d == "num_lit":
-        return str(node.children[0])
-    if d == "str_lit":
-        return str(node.children[0])
-    if d == "var_ref":
-        return _text_of_qname(node.children[0])
-    if d == "qname":
-        return _text_of_qname(node)
-    if d == "prop_req":
-        # node.children[0] is the property_request tree
-        pr = node.children[0]
-        prop_name = " ".join(str(t) for t in pr.children[0].children)
-        target = _text_of_qname(pr.children[1])
-        return f"{prop_name} of {target}"
-    if d == "not_op":
-        return f"not {_format_expression(node.children[0])}"
-    if d == "or_expr":
-        return " or ".join(_format_expression(c) for c in node.children)
-    if d == "and_expr":
-        return " and ".join(_format_expression(c) for c in node.children)
-    if d == "comparison":
-        left = _format_expression(node.children[0])
-        op = str(node.children[1])
-        right = _format_expression(node.children[2])
-        return f"{left} {op} {right}"
-    if d in ("arith", "term"):
-        out = _format_expression(node.children[0])
-        i = 1
-        while i < len(node.children):
-            op = str(node.children[i])
-            right = _format_expression(node.children[i + 1])
-            out = f"{out} {op} {right}"
-            i += 2
-        return out
-    return f"/* {d} */"
-
-
 # ---------- helpers ----------
-def _text_of_name(node: Tree) -> str:
-    return " ".join(str(t) for t in node.children)
-
-
-def _text_of_qname(node: Tree) -> str:
-    return " of ".join(_text_of_name(n) for n in node.children)
-
-
-def _text_of_description(node: Tree) -> str:
-    return " ".join(str(t) for t in node.children)
-
-
-def _is_timeout(c) -> bool:
-    return isinstance(c, Tree) and c.data == "timeout_clause"
-
-
 def _timeout_clause(node: Tree) -> str | None:
-    for c in node.children:
-        if _is_timeout(c):
-            return _format_expression(c.children[0])
-    return None
+    tc = _timeout_clause_node(node)
+    return _format_expression(tc.children[0]) if tc is not None else None
 
 
 def _timeout_suffix(node: Tree) -> str:
     t = _timeout_clause(node)
     return f" with timeout {t}" if t is not None else ""
-
-
-def _is_expression(node) -> bool:
-    if isinstance(node, Token):
-        return False
-    return node.data in {
-        "or_expr", "and_expr", "not_op", "comparison",
-        "arith", "term", "num_lit", "str_lit", "var_ref", "qname",
-    }
