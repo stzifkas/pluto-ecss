@@ -44,6 +44,7 @@ def description_text(node: Tree) -> str:
 # was the original drift bug.
 EXPRESSION_RULES = frozenset({
     "or_expr", "and_expr", "not_op", "comparison",
+    "between_expr", "within_expr", "within_pct_expr", "in_expr",
     "arith", "term", "num_lit", "str_lit", "var_ref", "qname", "prop_req",
 })
 
@@ -125,6 +126,19 @@ def render_expression(node: object) -> str:
         op = str(node.children[1])
         right = render_expression(node.children[2])
         return f"{left} {op} {right}"
+    if d == "between_expr":
+        x, lo, hi = (render_expression(c) for c in node.children)
+        return f"{x} between {lo} and {hi}"
+    if d == "within_expr":
+        x, tol, y = (render_expression(c) for c in node.children)
+        return f"{x} within {tol} of {y}"
+    if d == "within_pct_expr":
+        x, tol, y = (render_expression(c) for c in node.children)
+        return f"{x} within {tol} % of {y}"
+    if d == "in_expr":
+        x = render_expression(node.children[0])
+        elems = ", ".join(render_expression(c) for c in node.children[1:])
+        return f"{x} in ({elems})"
     if d in ("arith", "term"):
         out = render_expression(node.children[0])
         i = 1
