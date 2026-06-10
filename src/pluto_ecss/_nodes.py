@@ -45,6 +45,7 @@ def description_text(node: Tree) -> str:
 EXPRESSION_RULES = frozenset({
     "or_expr", "and_expr", "not_op", "comparison",
     "between_expr", "within_expr", "within_pct_expr", "in_expr",
+    "abs_time_lit", "rel_time_lit",
     "arith", "term", "num_lit", "str_lit", "var_ref", "qname", "prop_req",
 })
 
@@ -103,6 +104,8 @@ def render_expression(node: object) -> str:
         return str(node)
     d = node.data
     if d == "num_lit":
+        return str(node.children[0])
+    if d in ("abs_time_lit", "rel_time_lit"):
         return str(node.children[0])
     if d == "str_lit":
         return str(node.children[0])

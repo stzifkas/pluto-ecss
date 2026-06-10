@@ -7,13 +7,69 @@ is readable and debuggable on its own.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 log = logging.getLogger("pluto-ecss")
+
+
+_DURATION_RE = re.compile(
+    r"(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)min)?(?:(\d+(?:\.\d+)?)s)?$"
+)
+# Manual ISO parse: datetime.fromisoformat on Python <= 3.10 rejects 'Z' and
+# fractions that are not exactly 3 or 6 digits (e.g. '.5'), both of which the
+# PLUTO grammar allows.
+_ABS_TIME_RE = re.compile(
+    r"(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z?)$"
+)
+
+
+def pluto_time(text: str) -> datetime:
+    """Parse a PLUTO absolute time constant (ISO-8601, optional trailing Z)."""
+    m = _ABS_TIME_RE.fullmatch(text)
+    if not m:
+        raise PlutoRuntimeError(f"invalid absolute time: {text!r}")
+    year, month, day, hour, minute, second, frac, zulu = m.groups()
+    micro = int(float(f"0.{frac}") * 1_000_000) if frac else 0
+    tz = timezone.utc if zulu else None
+    return datetime(int(year), int(month), int(day),
+                    int(hour), int(minute), int(second), micro, tzinfo=tz)
+
+
+def pluto_duration(text: str) -> timedelta:
+    """Parse a PLUTO relative time constant (`2h30min`, `10.5s`, ...) to a timedelta."""
+    m = _DURATION_RE.fullmatch(text)
+    if not m or not any(m.groups()):
+        raise PlutoRuntimeError(f"invalid duration: {text!r}")
+    days, hours, minutes, seconds = m.groups()
+    return timedelta(
+        days=int(days or 0),
+        hours=int(hours or 0),
+        minutes=int(minutes or 0),
+        seconds=float(seconds or 0),
+    )
+
+
+def pluto_seconds(value: Any) -> float:
+    """Coerce a timeout value — a `timedelta` or a number — to float seconds.
+
+    Transpiled deadline arithmetic uses this so `with timeout 2h30min` and
+    `with timeout 5` both work.
+    """
+    if isinstance(value, timedelta):
+        return value.total_seconds()
+    return float(value)
+
+
+def wait_for_duration(duration: Any) -> None:
+    """Block for a relative time (a `timedelta`) or a number of seconds."""
+    secs = pluto_seconds(duration)
+    if secs > 0:
+        time.sleep(secs)
 
 
 class PlutoRuntimeError(RuntimeError):
@@ -362,21 +418,29 @@ def parallel_until_one(calls: List[Callable[[], Any]]) -> None:
     done.wait()
 
 
-def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[float] = None) -> None:
-    deadline = None if timeout is None else time.time() + timeout
+def wait_for_event(proc: "Procedure", event_name: str, timeout: Optional[float] = None,
+                   timeout_event: Optional[str] = None) -> None:
+    deadline = None if timeout is None else time.time() + pluto_seconds(timeout)
     while True:
         evt = proc.events.get(event_name)
         if evt and evt.raised:
             return
         if deadline is not None and time.time() >= deadline:
+            if timeout_event is not None:
+                proc.raise_event(timeout_event)
+                return
             raise PlutoRuntimeError(f"timeout waiting for event {event_name!r}")
         time.sleep(0.01)
 
 
-def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = None) -> None:
-    deadline = None if timeout is None else time.time() + timeout
+def wait_until(predicate: Callable[[], bool], timeout: Optional[float] = None,
+               timeout_event: Optional[str] = None, proc: "Optional[Procedure]" = None) -> None:
+    deadline = None if timeout is None else time.time() + pluto_seconds(timeout)
     while not predicate():
         if deadline is not None and time.time() >= deadline:
+            if timeout_event is not None and proc is not None:
+                proc.raise_event(timeout_event)
+                return
             raise PlutoRuntimeError("timeout in wait until")
         time.sleep(0.01)
 

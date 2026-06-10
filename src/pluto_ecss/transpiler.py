@@ -80,7 +80,8 @@ _RUNTIME_PUBLIC_NAMES = (
     "switch_on", "switch_off",
     "initiate", "initiate_and_confirm", "initiate_and_confirm_step",
     "parallel_until_all", "parallel_until_one",
-    "wait_for_event", "wait_until",
+    "wait_for_event", "wait_until", "wait_for_duration",
+    "pluto_time", "pluto_duration", "pluto_seconds",
     "inform_user", "pluto_log",
 )
 
@@ -583,12 +584,15 @@ class _Emitter:
     def _stmt_while_stmt(self, node: Tree) -> List[str]:
         expr = self._emit_expression(node.children[0])
         timeout = self._extract_timeout(node)
+        timeout_event = self._extract_timeout_event(node)
         body = [c for c in node.children[1:] if not _is_timeout(c)]
+        deadline = None
         if timeout:
-            # convert `while EXPR do BODY with timeout T` into a time-limited while loop
+            # convert `while EXPR do BODY with timeout T` into a time-limited
+            # while loop; pluto_seconds() lets T be a duration literal too
             deadline = self._fresh("_deadline")
             lines = [
-                f"{deadline} = __import__('time').time() + {timeout}",
+                f"{deadline} = __import__('time').time() + pluto_seconds({timeout})",
                 f"while ({expr}) and __import__('time').time() < {deadline}:",
             ]
         else:
@@ -598,6 +602,9 @@ class _Emitter:
         else:
             for s in body:
                 lines.extend(_indent_block(self._emit_statement(s), 1))
+        if deadline is not None and timeout_event is not None:
+            lines.append(f"if __import__('time').time() >= {deadline}:")
+            lines.append(f'{INDENT}{self._await}{self._receiver}.raise_event("{timeout_event}")')
         return lines
 
     def _stmt_for_stmt(self, node: Tree) -> List[str]:
@@ -624,13 +631,14 @@ class _Emitter:
 
     def _stmt_repeat_stmt(self, node: Tree) -> List[str]:
         timeout = self._extract_timeout(node)
+        timeout_event = self._extract_timeout_event(node)
         non_timeout = [c for c in node.children if not _is_timeout(c)]
         body = non_timeout[:-1]
         cond = self._emit_expression(non_timeout[-1])
         lines = []
         deadline = self._fresh("_deadline") if timeout else None
         if timeout:
-            lines.append(f"{deadline} = __import__('time').time() + {timeout}")
+            lines.append(f"{deadline} = __import__('time').time() + pluto_seconds({timeout})")
         lines.append("while True:")
         if not body:
             lines.append(f"{INDENT}pass")
@@ -641,24 +649,43 @@ class _Emitter:
         lines.append(f"{INDENT}{INDENT}break")
         if timeout:
             lines.append(f"{INDENT}if __import__('time').time() >= {deadline}:")
+            if timeout_event is not None:
+                lines.append(f'{INDENT}{INDENT}{self._await}{self._receiver}.raise_event("{timeout_event}")')
             lines.append(f"{INDENT}{INDENT}break")
         return lines
 
     def _stmt_wait_for_event(self, node: Tree) -> List[str]:
         ev = _text_of_name(node.children[0])
         timeout = self._extract_timeout(node)
-        timeout_arg = f", timeout={timeout}" if timeout else ""
-        return [f'{self._await}wait_for_event({self._receiver}, "{ev}"{timeout_arg})']
+        timeout_event = self._extract_timeout_event(node)
+        timeout_arg = f", timeout=pluto_seconds({timeout})" if timeout else ""
+        event_arg = f', timeout_event="{timeout_event}"' if timeout_event else ""
+        return [f'{self._await}wait_for_event({self._receiver}, "{ev}"{timeout_arg}{event_arg})']
 
     def _stmt_wait_until_expr(self, node: Tree) -> List[str]:
         expr = self._emit_expression(node.children[0])
         timeout = self._extract_timeout(node)
-        timeout_arg = f", timeout={timeout}" if timeout else ""
-        return [f"{self._await}wait_until(lambda: {expr}{timeout_arg})"]
+        timeout_event = self._extract_timeout_event(node)
+        timeout_arg = f", timeout=pluto_seconds({timeout})" if timeout else ""
+        event_arg = (
+            f', timeout_event="{timeout_event}", proc={self._receiver}' if timeout_event else ""
+        )
+        return [f"{self._await}wait_until(lambda: {expr}{timeout_arg}{event_arg})"]
+
+    def _stmt_wait_for_time(self, node: Tree) -> List[str]:
+        expr = self._emit_expression(node.children[0])
+        return [f"{self._await}wait_for_duration({expr})"]
 
     def _extract_timeout(self, node: Tree) -> str | None:
         tc = _timeout_clause_node(node)
         return self._emit_expression(tc.children[0]) if tc is not None else None
+
+    def _extract_timeout_event(self, node: Tree) -> str | None:
+        """The event name in `with timeout T raise event E`, if any."""
+        tc = _timeout_clause_node(node)
+        if tc is not None and len(tc.children) > 1:
+            return _text_of_name(tc.children[1])
+        return None
 
     def _stmt_assign_stmt(self, node: Tree) -> List[str]:
         var = _py_ident(_text_of_name(node.children[0]))
@@ -735,6 +762,10 @@ class _Emitter:
         d = node.data
         if d == "num_lit":
             return str(node.children[0])
+        if d == "abs_time_lit":
+            return f'pluto_time("{node.children[0]}")'
+        if d == "rel_time_lit":
+            return f'pluto_duration("{node.children[0]}")'
         if d == "str_lit":
             return str(node.children[0])
         if d == "prop_req":

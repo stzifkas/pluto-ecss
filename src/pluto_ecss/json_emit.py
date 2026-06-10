@@ -24,7 +24,8 @@ Each statement is a single-key-discriminator object::
     {"kind": "if",   "condition": str, "then": [statement, ...], "else": [statement, ...] | None}
     {"kind": "case", "expr": str, "arms": [{"when": str, "do": [statement, ...]}, ...],
                      "otherwise": [statement, ...] | None}
-    {"kind": "while",  "condition": str, "body": [...], "timeout": str | None}
+    {"kind": "while",  "condition": str, "body": [...], "timeout": str | None,
+                       "timeout_event": str | None}
     {"kind": "for",    "var": str, "from": str, "to": str, "by": str | None, "body": [...]}
     {"kind": "repeat", "body": [...], "until": str, "timeout": str | None}
     {"kind": "wait_for_event", "event": str, "timeout": str | None}
@@ -186,6 +187,7 @@ def _stmt_to_dict(stmt: Tree) -> Dict[str, Any]:
             "condition": _expression_to_str(stmt.children[0]),
             "body": [_stmt_to_dict(s) for s in body],
             "timeout": timeout,
+            "timeout_event": _extract_timeout_event(stmt),
         }
     if d == "for_stmt":
         rest = list(stmt.children[1:])
@@ -214,18 +216,26 @@ def _stmt_to_dict(stmt: Tree) -> Dict[str, Any]:
             "body": [_stmt_to_dict(s) for s in body],
             "until": cond,
             "timeout": timeout,
+            "timeout_event": _extract_timeout_event(stmt),
         }
     if d == "wait_for_event":
         return {
             "kind": "wait_for_event",
             "event": _name_text(stmt.children[0]),
             "timeout": _extract_timeout(stmt),
+            "timeout_event": _extract_timeout_event(stmt),
         }
     if d == "wait_until_expr":
         return {
             "kind": "wait_until",
             "condition": _expression_to_str(stmt.children[0]),
             "timeout": _extract_timeout(stmt),
+            "timeout_event": _extract_timeout_event(stmt),
+        }
+    if d == "wait_for_time":
+        return {
+            "kind": "wait_for_duration",
+            "duration": _expression_to_str(stmt.children[0]),
         }
     if d == "assign_stmt":
         return {
@@ -306,3 +316,11 @@ def _activity_call_to_dict(node: Tree) -> Dict[str, Any]:
 def _extract_timeout(node: Tree) -> str | None:
     tc = _timeout_clause_node(node)
     return _expression_to_str(tc.children[0]) if tc is not None else None
+
+
+def _extract_timeout_event(node: Tree) -> str | None:
+    """The event name in `with timeout T raise event E`, if any."""
+    tc = _timeout_clause_node(node)
+    if tc is not None and len(tc.children) > 1:
+        return _name_text(tc.children[1])
+    return None

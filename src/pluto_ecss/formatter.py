@@ -156,6 +156,8 @@ def _format_statement(stmt: Tree, depth: int) -> List[str]:
         expr = _format_expression(stmt.children[0])
         suffix = _timeout_suffix(stmt)
         return [f"{pad}wait until {expr}{suffix}"]
+    if d == "wait_for_time":
+        return [f"{pad}wait for {_format_expression(stmt.children[0])}"]
     if d == "assign_stmt":
         var = _text_of_name(stmt.children[0])
         expr = _format_expression(stmt.children[1])
@@ -369,7 +371,12 @@ def _format_activity_with(tail) -> str:
 # ---------- helpers ----------
 def _timeout_clause(node: Tree) -> str | None:
     tc = _timeout_clause_node(node)
-    return _format_expression(tc.children[0]) if tc is not None else None
+    if tc is None:
+        return None
+    text = _format_expression(tc.children[0])
+    if len(tc.children) > 1:  # `... raise event E`
+        text += f" raise event {_text_of_name(tc.children[1])}"
+    return text
 
 
 def _timeout_suffix(node: Tree) -> str:
